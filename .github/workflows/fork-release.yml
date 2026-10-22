@@ -1,0 +1,176 @@
+name: Fork Release APK
+
+# Builds a signed fullRelease APK and publishes it as a GitHub release in this
+# repository. Unlike android-release.yml it needs none of the upstream release
+# secrets, and the app's in-app updater checks this repository's releases.
+#
+# Run it from the Actions tab (needs this file on the default branch), or push
+# a tag like v1.1.0-beta.7.fork.1 from any branch.
+#
+# Optional repository secrets:
+#   FORK_KEYSTORE_BASE64, FORK_KEYSTORE_PASSWORD, FORK_KEY_ALIAS, FORK_KEY_PASSWORD
+#     Signing key. Without it each run signs with a new throwaway key, so a
+#     release cannot be installed over the previous one without uninstalling.
+#   TMDB_API_KEY
+#     Enables TMDB features, including the Recommended for you row.
+#   LOCAL_PROPERTIES_BASE64
+#     A full local.properties (see local.example.properties) for other API keys.
+
+on:
+  workflow_dispatch:
+    inputs:
+      prerelease:
+        description: Mark as a pre-release
+        type: boolean
+        default: true
+  push:
+    tags:
+      - "v*.fork.*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fork-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      LOCAL_PROPERTIES_BASE64: ${{ secrets.LOCAL_PROPERTIES_BASE64 }}
+      TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+      FORK_KEYSTORE_BASE64: ${{ secrets.FORK_KEYSTORE_BASE64 }}
+      FORK_KEYSTORE_PASSWORD: ${{ secrets.FORK_KEYSTORE_PASSWORD }}
+      FORK_KEY_ALIAS: ${{ secrets.FORK_KEY_ALIAS }}
+      FORK_KEY_PASSWORD: ${{ secrets.FORK_KEY_PASSWORD }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Work out version
+        id: version
+        run: |
+          base_name="$(sed -nE 's/^[[:space:]]*versionName[[:space:]]*=[[:space:]]*"([^"]+)".*$/\1/p' app/build.gradle.kts | head -n1)"
+          base_code="$(sed -nE 's/^[[:space:]]*versionCode[[:space:]]*=[[:space:]]*([0-9]+).*$/\1/p' app/build.gradle.kts | head -n1)"
+          if [[ -z "${base_name}" || -z "${base_code}" ]]; then
+            echo "Could not read versionName and versionCode from app/build.gradle.kts." >&2
+            exit 1
+          fi
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            tag="${GITHUB_REF_NAME}"
+          else
+            tag="v${base_name}.fork.${GITHUB_RUN_NUMBER}"
+          fi
+          # The updater compares semantic versions, so ".fork.N" sorts after
+          # the upstream version it is based on and after earlier fork builds.
+          version_name="${tag#v}"
+          version_code=$(( base_code * 100000 + GITHUB_RUN_NUMBER ))
+
+          if gh release view "${tag}" >/dev/null 2>&1; then
+            echo "A release named ${tag} already exists." >&2
+            exit 1
+          fi
+
+          {
+            echo "tag=${tag}"
+            echo "version_name=${version_name}"
+            echo "version_code=${version_code}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Prepare local properties
+        run: |
+          if [[ -n "${LOCAL_PROPERTIES_BASE64}" ]]; then
+            printf '%s' "${LOCAL_PROPERTIES_BASE64}" | base64 --decode > local.properties
+          else
+            touch local.properties
+          fi
+          if [[ -n "${TMDB_API_KEY}" ]]; then
+            sed -i -E '/^[[:space:]]*TMDB_API_KEY[[:space:]]*=/d' local.properties
+            printf '\nTMDB_API_KEY=%s\n' "${TMDB_API_KEY}" >> local.properties
+          fi
+          sed -i -E '/^[[:space:]]*sdk\.dir[[:space:]]*=/d' local.properties
+
+      - name: Prepare signing key
+        run: |
+          keystore="${RUNNER_TEMP}/fork-release.jks"
+          if [[ -n "${FORK_KEYSTORE_BASE64}" ]]; then
+            printf '%s' "${FORK_KEYSTORE_BASE64}" | base64 --decode > "${keystore}"
+            store_password="${FORK_KEYSTORE_PASSWORD}"
+            key_alias="${FORK_KEY_ALIAS:-nuviotv}"
+            key_password="${FORK_KEY_PASSWORD:-${FORK_KEYSTORE_PASSWORD}}"
+          else
+            echo "::warning::FORK_KEYSTORE_BASE64 is not set. Signing with a one-off key; this APK cannot update the previous release in place."
+            store_password="android"
+            key_alias="nuviotv"
+            key_password="android"
+            keytool -genkeypair -keystore "${keystore}" -storepass "${store_password}" \
+              -alias "${key_alias}" -keypass "${key_password}" \
+              -dname "CN=NuvioTV Fork" -keyalg RSA -keysize 2048 -validity 10000
+          fi
+          {
+            echo "NUVIO_RELEASE_STORE_FILE=${keystore}"
+            echo "NUVIO_RELEASE_KEY_ALIAS=${key_alias}"
+            echo "NUVIO_RELEASE_KEY_PASSWORD=${key_password}"
+            echo "NUVIO_RELEASE_STORE_PASSWORD=${store_password}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Run unit tests and build fullRelease APKs
+        run: |
+          ./gradlew \
+            -PnuvioVersionName="${{ steps.version.outputs.version_name }}" \
+            -PnuvioVersionCode="${{ steps.version.outputs.version_code }}" \
+            -PnuvioUpdateRepository="${GITHUB_REPOSITORY}" \
+            :app:testFullReleaseUnitTest :app:assembleFullRelease --stacktrace
+
+      - name: Upload APKs as a build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuviotv-${{ steps.version.outputs.version_name }}
+          path: app/build/outputs/apk/full/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Create GitHub release
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          PRERELEASE: ${{ github.event_name == 'push' || inputs.prerelease }}
+        run: |
+          mapfile -t apks < <(find app/build/outputs/apk/full/release -maxdepth 1 -type f -name '*.apk' | sort)
+          if (( ${#apks[@]} == 0 )); then
+            echo "No release APKs were produced." >&2
+            exit 1
+          fi
+
+          {
+            echo "Fork build of NuvioTV from ${GITHUB_SHA::7} on \`${GITHUB_REF_NAME}\`."
+            echo
+            echo "Most Android TV devices want the \`arm64-v8a\` APK; the \`universal\` APK works everywhere but is larger."
+            echo
+            echo "### Changes since the last release"
+            previous_tag="$(gh release list --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || true)"
+            if [[ -n "${previous_tag}" && "${previous_tag}" != "${RELEASE_TAG}" ]] \
+              && git rev-parse --verify --quiet "refs/tags/${previous_tag}" >/dev/null; then
+              git log --no-merges --format='- %s' "${previous_tag}..HEAD" | head -n 50
+            else
+              git log --no-merges --format='- %s' -n 20
+            fi
+          } > release-notes.md
+
+          release_args=("${RELEASE_TAG}" --target "${GITHUB_SHA}" --title "NuvioTV ${RELEASE_TAG#v}" --notes-file release-notes.md)
+          if [[ "${PRERELEASE}" == "true" ]]; then
+            release_args+=(--prerelease)
+          fi
+          gh release create "${release_args[@]}" "${apks[@]}"

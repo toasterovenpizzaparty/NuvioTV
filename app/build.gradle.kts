@@ -137,6 +137,9 @@ android {
         targetSdk = 36
         versionCode = 1070
         versionName = "1.1.0-beta.7"
+        // Fork release builds set their own version so in-app updates can tell them apart.
+        providers.gradleProperty("nuvioVersionCode").orNull?.toIntOrNull()?.let { versionCode = it }
+        providers.gradleProperty("nuvioVersionName").orNull?.let { versionName = it }
 
         buildConfigField("String", "PARENTAL_GUIDE_API_URL", "\"${localProperties.getProperty("PARENTAL_GUIDE_API_URL", "")}\"")
         buildConfigField("String", "INTRODB_API_URL", "\"${localProperties.getProperty("INTRODB_API_URL", "")}\"")
@@ -177,8 +180,12 @@ android {
         buildConfigField("String", "SENTRY_DSN", buildConfigString(sentryDsn))
 
         // In-app updater (GitHub Releases)
-        buildConfigField("String", "GITHUB_OWNER", "\"NuvioMedia\"")
-        buildConfigField("String", "GITHUB_REPO", "\"NuvioTV\"")
+        // Forks pass -PnuvioUpdateRepository=owner/repo to update from their own releases.
+        val updateRepository = providers.gradleProperty("nuvioUpdateRepository").orNull
+            ?.split('/')
+            ?.takeIf { it.size == 2 && it.all(String::isNotBlank) }
+        buildConfigField("String", "GITHUB_OWNER", buildConfigString(updateRepository?.get(0) ?: "NuvioMedia"))
+        buildConfigField("String", "GITHUB_REPO", buildConfigString(updateRepository?.get(1) ?: "NuvioTV"))
     }
 
     flavorDimensions += "distribution"

@@ -27,6 +27,13 @@ data class CatalogRow(
         get() = rawType.trim().ifBlank { type.toApiString() }
 }
 
+/** Addon id of the home row built from watch history; it has no addon behind it. */
+const val WATCH_HISTORY_RECOMMENDATIONS_ADDON_ID = "nuvio_watch_history"
+
+/** Rows that mix movies and series get no " - Movies" style suffix. */
+fun catalogRowShowsTypeSuffix(addonId: String): Boolean =
+    addonId != WATCH_HISTORY_RECOMMENDATIONS_ADDON_ID
+
 fun CatalogRow.stableKey(): String {
     return catalogRowStableKey(addonId, addonBaseUrl, apiType, catalogId)
 }

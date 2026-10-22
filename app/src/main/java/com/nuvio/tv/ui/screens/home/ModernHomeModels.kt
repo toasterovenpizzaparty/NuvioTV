@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.screens.home
 
+import com.nuvio.tv.domain.model.catalogRowShowsTypeSuffix
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
 import androidx.compose.ui.graphics.Brush
@@ -605,7 +606,7 @@ internal fun catalogRowTitle(
     strTypeSeries: String = ""
 ): String {
     val catalogName = row.catalogName.replaceFirstChar { it.uppercase() }
-    if (!showCatalogTypeSuffix) return catalogName
+    if (!showCatalogTypeSuffix || !catalogRowShowsTypeSuffix(row.addonId)) return catalogName
     val typeLabel = when (row.apiType.lowercase()) {
         "movie" -> strTypeMovie.ifBlank { row.apiType.replaceFirstChar { it.uppercase() } }
         "series" -> strTypeSeries.ifBlank { row.apiType.replaceFirstChar { it.uppercase() } }

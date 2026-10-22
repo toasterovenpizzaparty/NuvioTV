@@ -730,6 +730,10 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                 add(HomeRow.CollectionRow(collection))
             }
         }
+        watchHistoryRecommendationRow
+            ?.let { if (hideUnreleased) it.filterReleasedItems(LocalDate.now()) else it }
+            ?.takeIf { it.items.isNotEmpty() }
+            ?.let { add(HomeRow.Catalog(it)) }
         for (key in orderedKeys) {
             if (key in disabledHomeCatalogKeys) continue
             val collectionEntry = collectionsSnapshot[key]

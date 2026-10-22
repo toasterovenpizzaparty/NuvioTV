@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.components
 
+import com.nuvio.tv.domain.model.catalogRowShowsTypeSuffix
 import com.nuvio.tv.ui.theme.NuvioTheme
 
 import androidx.compose.foundation.BorderStroke
@@ -272,7 +273,7 @@ fun CatalogRowSection(
     val catalogTitle = remember(catalogRow.catalogName, typeLabel, showCatalogTypeSuffix) {
         val formattedName = catalogRow.catalogName.replaceFirstChar { it.uppercase() }
         if (formattedName.isBlank()) ""
-        else if (showCatalogTypeSuffix && typeLabel.isNotEmpty()) "$formattedName - $typeLabel" else formattedName
+        else if (showCatalogTypeSuffix && typeLabel.isNotEmpty() && catalogRowShowsTypeSuffix(catalogRow.addonId)) "$formattedName - $typeLabel" else formattedName
     }
 
     Column(modifier = modifier.fillMaxWidth().then(

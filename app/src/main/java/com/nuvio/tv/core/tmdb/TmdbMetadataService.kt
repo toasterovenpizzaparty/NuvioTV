@@ -60,6 +60,7 @@ class TmdbMetadataService(
     private val episodeInFlight = ConcurrentHashMap<String, CompletableDeferred<Map<Pair<Int, Int>, TmdbEpisodeEnrichment>>>()
     private val personCache = ConcurrentHashMap<String, PersonDetail>()
     private val moreLikeThisCache = ConcurrentHashMap<String, List<MetaPreview>>()
+    private val recommendationPostersCache = ConcurrentHashMap<String, List<MetaPreview>>()
     private val entityHeaderCache = ConcurrentHashMap<String, TmdbEntityHeader>()
     private val entityRailCache = ConcurrentHashMap<String, List<MetaPreview>>()
     private val entityBrowseCache = ConcurrentHashMap<String, TmdbEntityBrowseData>()
@@ -778,6 +779,67 @@ class TmdbMetadataService(
             items
         } catch (e: Exception) {
             Log.w(TAG, "Failed to fetch recommendations for $tmdbId: ${e.message}")
+            emptyList()
+        }
+    }
+
+    /**
+     * TMDB recommendations as portrait poster cards, from one request. Unlike
+     * [fetchMoreLikeThis] it skips per-item image and details lookups, so the
+     * home screen can ask for several titles at once.
+     */
+    suspend fun fetchRecommendationPosters(
+        tmdbId: String,
+        contentType: ContentType,
+        language: String = "en"
+    ): List<MetaPreview> = withContext(ioDispatcher) {
+        val normalizedLanguage = normalizeTmdbLanguage(language)
+        val cacheKey = "$tmdbId:${contentType.name}:$normalizedLanguage:rec_posters"
+        recommendationPostersCache[cacheKey]?.let { return@withContext it }
+
+        val numericId = tmdbId.toIntOrNull() ?: return@withContext emptyList()
+        val isTv = contentType == ContentType.SERIES || contentType == ContentType.TV
+        try {
+            val response = if (isTv) {
+                tmdbApi.getTvRecommendations(numericId, TMDB_API_KEY, normalizedLanguage)
+            } else {
+                tmdbApi.getMovieRecommendations(numericId, TMDB_API_KEY, normalizedLanguage)
+            }
+            if (!response.isSuccessful) return@withContext emptyList()
+            val items = response.body()?.results.orEmpty().mapNotNull { rec ->
+                if (rec.id <= 0) return@mapNotNull null
+                val poster = buildImageUrl(rec.posterPath, size = "w342") ?: return@mapNotNull null
+                val recIsTv = when (rec.mediaType?.trim()?.lowercase()) {
+                    "tv" -> true
+                    "movie" -> false
+                    else -> isTv
+                }
+                val title = rec.title?.takeIf { it.isNotBlank() }
+                    ?: rec.name?.takeIf { it.isNotBlank() }
+                    ?: rec.originalTitle?.takeIf { it.isNotBlank() }
+                    ?: rec.originalName?.takeIf { it.isNotBlank() }
+                    ?: return@mapNotNull null
+                MetaPreview(
+                    id = "tmdb:${rec.id}",
+                    type = if (recIsTv) ContentType.SERIES else ContentType.MOVIE,
+                    name = title,
+                    poster = poster,
+                    posterShape = PosterShape.POSTER,
+                    background = buildImageUrl(rec.backdropPath, size = "w1280"),
+                    logo = null,
+                    description = rec.overview?.takeIf { it.isNotBlank() },
+                    releaseInfo = (if (recIsTv) rec.firstAirDate else rec.releaseDate).yearPart(),
+                    imdbRating = rec.voteAverage?.toFloat(),
+                    genres = emptyList(),
+                    voteCount = rec.voteCount
+                )
+            }
+            recommendationPostersCache[cacheKey] = items
+            items
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to fetch recommendation posters for $tmdbId: ${e.message}")
             emptyList()
         }
     }

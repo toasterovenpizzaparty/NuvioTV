@@ -88,6 +88,7 @@ class HomeViewModel @Inject constructor(
     internal val profileManager: com.nuvio.tv.core.profile.ProfileManager,
     internal val tvRecommendationManager: TvRecommendationManager,
     internal val serverCatalog: ServerCatalog,
+    internal val watchHistoryRecommender: com.nuvio.tv.core.recommendations.WatchHistoryRecommender,
     internal val metaPreviewEnricher: MetaPreviewEnricher = MetaPreviewEnricher(
         tmdbService,
         tmdbMetadataService,
@@ -236,6 +237,8 @@ class HomeViewModel @Inject constructor(
     internal var customCatalogTitles: Map<String, String> = emptyMap()
     internal var currentHeroCatalogKeys: List<String> = emptyList()
     internal var catalogUpdateJob: Job? = null
+    /** "Recommended for you" row built from watch history; null when there is nothing to show. */
+    @Volatile internal var watchHistoryRecommendationRow: CatalogRow? = null
     internal var hasRenderedFirstCatalog = false
     internal val catalogLoadSemaphore = Semaphore(MAX_CATALOG_LOAD_CONCURRENCY)
     internal var pendingCatalogLoads = 0
@@ -380,6 +383,7 @@ class HomeViewModel @Inject constructor(
             observeBlurUnwatchedEpisodes()
             observeProgressSourceChanges()
             observeCollections()
+            observeWatchHistoryRecommendations()
             observeInstalledAddons()
             observeManualAddonRefresh()
 
@@ -802,6 +806,8 @@ class HomeViewModel @Inject constructor(
     )
 
     private fun observeCollections() = observeCollectionsPipeline()
+
+    private fun observeWatchHistoryRecommendations() = observeWatchHistoryRecommendationsPipeline()
 
     private fun observeInstalledAddons() = observeInstalledAddonsPipeline()
 

@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.screens.home
 
+import com.nuvio.tv.domain.model.catalogRowShowsTypeSuffix
 import com.nuvio.tv.ui.theme.NuvioTheme
 
 import androidx.activity.compose.BackHandler
@@ -727,7 +728,7 @@ fun GridHomeContent(
                             "series" -> strTypeSeries
                             else -> gridItem.type.replaceFirstChar { it.uppercase() }
                         }
-                        val displayName = if (uiState.catalogTypeSuffixEnabled && typeLabel.isNotBlank()) {
+                        val displayName = if (uiState.catalogTypeSuffixEnabled && typeLabel.isNotBlank() && catalogRowShowsTypeSuffix(gridItem.addonId)) {
                             "${gridItem.catalogName.replaceFirstChar { it.uppercase() }} - $typeLabel"
                         } else {
                             gridItem.catalogName.replaceFirstChar { it.uppercase() }

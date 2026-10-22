@@ -79,13 +79,17 @@ jobs:
           version_name="${tag#v}"
           version_code=$(( base_code * 100000 + GITHUB_RUN_NUMBER ))
 
+          # Creating a release on GitHub's website also creates its tag, which
+          # starts this workflow. Attach the APKs to that release then.
           if gh release view "${tag}" >/dev/null 2>&1; then
-            echo "A release named ${tag} already exists." >&2
-            exit 1
+            release_exists=true
+          else
+            release_exists=false
           fi
 
           {
             echo "tag=${tag}"
+            echo "release_exists=${release_exists}"
             echo "version_name=${version_name}"
             echo "version_code=${version_code}"
           } >> "${GITHUB_OUTPUT}"
@@ -146,6 +150,7 @@ jobs:
       - name: Create GitHub release
         env:
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          RELEASE_EXISTS: ${{ steps.version.outputs.release_exists }}
           PRERELEASE: ${{ github.event_name == 'push' || inputs.prerelease }}
         run: |
           mapfile -t apks < <(find app/build/outputs/apk/full/release -maxdepth 1 -type f -name '*.apk' | sort)
@@ -160,7 +165,7 @@ jobs:
             echo "Most Android TV devices want the \`arm64-v8a\` APK; the \`universal\` APK works everywhere but is larger."
             echo
             echo "### Changes since the last release"
-            previous_tag="$(gh release list --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || true)"
+            previous_tag="$(gh release list --limit 10 --json tagName --jq '[.[].tagName | select(. != $ENV.RELEASE_TAG)][0] // empty' 2>/dev/null || true)"
             if [[ -n "${previous_tag}" && "${previous_tag}" != "${RELEASE_TAG}" ]] \
               && git rev-parse --verify --quiet "refs/tags/${previous_tag}" >/dev/null; then
               git log --no-merges --format='- %s' "${previous_tag}..HEAD" | head -n 50
@@ -168,6 +173,15 @@ jobs:
               git log --no-merges --format='- %s' -n 20
             fi
           } > release-notes.md
+
+          if [[ "${RELEASE_EXISTS}" == "true" ]]; then
+            gh release upload "${RELEASE_TAG}" "${apks[@]}" --clobber
+            existing_notes="$(gh release view "${RELEASE_TAG}" --json body --jq '.body')"
+            if [[ -z "${existing_notes//[[:space:]]/}" ]]; then
+              gh release edit "${RELEASE_TAG}" --notes-file release-notes.md
+            fi
+            exit 0
+          fi
 
           release_args=("${RELEASE_TAG}" --target "${GITHUB_SHA}" --title "NuvioTV ${RELEASE_TAG#v}" --notes-file release-notes.md)
           if [[ "${PRERELEASE}" == "true" ]]; then

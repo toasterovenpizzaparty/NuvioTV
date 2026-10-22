@@ -2,6 +2,8 @@
 
 package com.nuvio.tv.ui.screens.home
 
+import com.nuvio.tv.core.image.posterMemoryCacheKey
+import com.nuvio.tv.core.image.posterFallbackUrl
 import com.nuvio.tv.ui.theme.NuvioTheme
 
 import android.view.KeyEvent as AndroidKeyEvent
@@ -690,7 +692,7 @@ internal fun ModernRowSection(
                         )
                         val widthPx = with(density) { metrics.width.roundToPx() }
                         val heightPx = with(density) { metrics.height.roundToPx() }
-                        url to "${url}_${widthPx}x${heightPx}"
+                        url to posterMemoryCacheKey(url, widthPx, heightPx)
                     }
                     is ModernPayload.CollectionFolder -> {
                         val url = item.imageUrl ?: return null
@@ -703,7 +705,7 @@ internal fun ModernRowSection(
                         )
                         val widthPx = with(density) { metrics.width.roundToPx() }
                         val heightPx = with(density) { metrics.height.roundToPx() }
-                        url to "${url}_${widthPx}x${heightPx}"
+                        url to posterMemoryCacheKey(url, widthPx, heightPx)
                     }
                     is ModernPayload.ContinueWatching -> {
                         // Use the same model and cache key the card computes so the prefetch warms the entry the card actually reads.
@@ -1210,16 +1212,17 @@ private fun ModernCarouselCard(
     }
 
     val revalidationKey = com.nuvio.tv.core.image.rememberImageRevalidationKey(imageUrl)
+    val imageRetry = com.nuvio.tv.core.image.rememberImageRetryState(imageUrl)
     var customPosterLoadFailed by remember(imageUrl) { mutableStateOf(false) }
     val imageModel = remember(context, imageUrl, requestWidthPx, requestHeightPx, revalidationKey) {
         imageUrl?.let {
             val builder = ImageRequest.Builder(context)
                 .data(it)
                 .crossfade(true)
-                .memoryCacheKey("${it}_${requestWidthPx}x${requestHeightPx}_v$revalidationKey")
+                .memoryCacheKey(posterMemoryCacheKey(it, requestWidthPx, requestHeightPx, revalidationKey))
                 .size(width = requestWidthPx, height = requestHeightPx)
             if (revalidationKey > 0) {
-                builder.placeholderMemoryCacheKey("${it}_${requestWidthPx}x${requestHeightPx}_v${revalidationKey - 1}")
+                builder.placeholderMemoryCacheKey(posterMemoryCacheKey(it, requestWidthPx, requestHeightPx, revalidationKey - 1))
             }
             val isLandscapeCustomPoster = useLandscapeOverlayTreatment && !effectiveIgnoreLandscapePoster && !item.metaPreview?.landscapePoster.isNullOrBlank()
             val fallbackUrl = if (isLandscapeCustomPoster) {
@@ -1229,9 +1232,7 @@ private fun ModernCarouselCard(
                 item.metaPreview?.rawPosterUrl
             }
             if (!fallbackUrl.isNullOrBlank() && fallbackUrl != it) {
-                builder.memoryCacheKeyExtras(
-                    mapOf(com.nuvio.tv.core.image.CustomPosterFallbackInterceptor.FALLBACK_URL_KEY to fallbackUrl)
-                )
+                builder.posterFallbackUrl(fallbackUrl)
             }
             builder.build()
         }
@@ -1408,20 +1409,23 @@ private fun ModernCarouselCard(
                                 .placeholderCardShimmer(effectivePlaceholderShimmerOffsetState)
                         )
                     } else if (hasImage) {
-                        AsyncImage(
-                            model = imageModel,
-                            contentDescription = item.title,
-                            modifier = Modifier.fillMaxSize(),
-                            placeholder = backgroundPainter,
-                            error = backgroundPainter,
-                            fallback = backgroundPainter,
-                            contentScale = imageContentScale,
-                            onError = {
-                                if (!item.metaPreview?.landscapePoster.isNullOrBlank() || !item.metaPreview?.rawPosterUrl.isNullOrBlank()) {
-                                    customPosterLoadFailed = true
+                        key(imageRetry.attempt) {
+                            AsyncImage(
+                                model = imageModel,
+                                contentDescription = item.title,
+                                modifier = Modifier.fillMaxSize(),
+                                placeholder = backgroundPainter,
+                                error = backgroundPainter,
+                                fallback = backgroundPainter,
+                                contentScale = imageContentScale,
+                                onError = { error ->
+                                    if (!item.metaPreview?.landscapePoster.isNullOrBlank() || !item.metaPreview?.rawPosterUrl.isNullOrBlank()) {
+                                        customPosterLoadFailed = true
+                                    }
+                                    imageRetry.onError(error)
                                 }
-                            }
-                        )
+                            )
+                        }
                     } else if (isCollectionFolder && !payload?.coverEmoji.isNullOrBlank()) {
                         Box(
                             modifier = Modifier.fillMaxSize(),

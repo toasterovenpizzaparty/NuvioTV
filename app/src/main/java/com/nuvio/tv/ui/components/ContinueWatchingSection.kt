@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.components
 
+import com.nuvio.tv.core.image.posterFallbackUrl
 import com.nuvio.tv.ui.screens.home.shuffleFocusKey
 
 import android.view.KeyEvent as AndroidKeyEvent
@@ -601,9 +602,7 @@ fun ContinueWatchingCard(
             is ContinueWatchingItem.NextUp -> item.originalPoster
         }
         if (!fallbackUrl.isNullOrBlank() && fallbackUrl != effectiveImageModel) {
-            builder.memoryCacheKeyExtras(
-                mapOf(com.nuvio.tv.core.image.CustomPosterFallbackInterceptor.FALLBACK_URL_KEY to fallbackUrl)
-            )
+            builder.posterFallbackUrl(fallbackUrl)
         }
         builder.build()
     }

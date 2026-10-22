@@ -27,3 +27,10 @@ fun rememberImageRevalidationKey(imageUrl: String?): Int {
 
     return version
 }
+
+/**
+ * Memory cache key for a sized poster. Cards and prefetchers must both use this,
+ * otherwise a prefetched bitmap is never found in memory.
+ */
+fun posterMemoryCacheKey(url: String?, widthPx: Int, heightPx: Int, revalidationKey: Int = 0): String =
+    "${url}_${widthPx}x${heightPx}_v$revalidationKey"

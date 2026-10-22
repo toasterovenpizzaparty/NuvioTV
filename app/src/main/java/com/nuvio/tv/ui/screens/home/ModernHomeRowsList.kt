@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.screens.home
 
+import com.nuvio.tv.core.image.posterMemoryCacheKey
 import com.nuvio.tv.domain.model.catalogRowLegacyKey
 import com.nuvio.tv.ui.theme.NuvioTheme
 
@@ -163,6 +164,7 @@ internal fun ModernHomeRowsList(
     val context = LocalContext.current
     val layoutDirection = LocalLayoutDirection.current
     val verticalPrefetchImageLoader = context.imageLoader
+    val verticalPrefetchItemsPerRow = remember(context) { com.nuvio.tv.core.image.rowImagePrefetchCount(context) }
     val latestCarouselRowsForImagePrefetch = rememberUpdatedState(carouselRows)
 
     LaunchedEffect(
@@ -177,7 +179,7 @@ internal fun ModernHomeRowsList(
         landscapeCatalogCardHeight
     ) {
         val prefetchAheadRows = 1
-        val prefetchItemsPerRow = 1
+        val prefetchItemsPerRow = verticalPrefetchItemsPerRow
         snapshotFlow {
             verticalRowListState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
         }
@@ -202,7 +204,7 @@ internal fun ModernHomeRowsList(
                             val wPx = with(density) { metrics.width.roundToPx() }
                             val hPx = with(density) { metrics.height.roundToPx() }
                             if (wPx <= 0 || hPx <= 0) continue
-                            val cacheKey = "${url}_${wPx}x${hPx}"
+                            val cacheKey = posterMemoryCacheKey(url, wPx, hPx)
                             if (verticalPrefetchImageLoader.memoryCache?.get(MemoryCache.Key(cacheKey)) != null) continue
                             verticalPrefetchImageLoader.enqueue(
                                 ImageRequest.Builder(context)

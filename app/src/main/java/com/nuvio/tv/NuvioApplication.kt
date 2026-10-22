@@ -102,16 +102,18 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
                 .dispatcher(imageDispatcher)
                 .dns(IPv4FirstDns())
                 .socketFactory(NoDelaySocketFactory)
-                .connectTimeout(4, TimeUnit.SECONDS)
-                .readTimeout(5, TimeUnit.SECONDS)
-                .callTimeout(8, TimeUnit.SECONDS)
+                // Read timeout is per socket read, so a slow but progressing
+                // download keeps going. The call timeout must leave room for
+                // the retry below: large backdrops on slow TV Wi-Fi took longer
+                // than the old 8s limit and failed with no usable retry.
+                .connectTimeout(5, TimeUnit.SECONDS)
+                .readTimeout(8, TimeUnit.SECONDS)
+                .callTimeout(30, TimeUnit.SECONDS)
                 .addInterceptor { chain ->
                     try {
                         chain.proceed(chain.request())
                     } catch (e: java.net.SocketTimeoutException) {
-                        chain.withConnectTimeout(3, TimeUnit.SECONDS)
-                            .withReadTimeout(4, TimeUnit.SECONDS)
-                            .proceed(chain.request())
+                        chain.proceed(chain.request())
                     }
                 }
                 .followRedirects(true)

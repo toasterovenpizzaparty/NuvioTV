@@ -1,5 +1,7 @@
 package com.nuvio.tv.ui.components
 
+import com.nuvio.tv.core.image.posterMemoryCacheKey
+import com.nuvio.tv.core.image.posterFallbackUrl
 import com.nuvio.tv.ui.theme.NuvioTheme
 
 import android.view.KeyEvent as AndroidKeyEvent
@@ -20,6 +22,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -214,35 +217,37 @@ fun GridContentCard(
                     item.poster
                 }
                 val revalidationKey = com.nuvio.tv.core.image.rememberImageRevalidationKey(effectiveImageUrl)
+                val imageRetry = com.nuvio.tv.core.image.rememberImageRetryState(effectiveImageUrl)
                 val imageModel = remember(effectiveImageUrl, requestWidthPx, requestHeightPx, revalidationKey) {
                     val builder = ImageRequest.Builder(context)
                         .data(effectiveImageUrl)
                         .crossfade(imageCrossfade)
                         .size(width = requestWidthPx, height = requestHeightPx)
-                        .memoryCacheKey("${effectiveImageUrl}_${requestWidthPx}x${requestHeightPx}_v$revalidationKey")
+                        .memoryCacheKey(posterMemoryCacheKey(effectiveImageUrl, requestWidthPx, requestHeightPx, revalidationKey))
                     if (revalidationKey > 0) {
-                        builder.placeholderMemoryCacheKey("${effectiveImageUrl}_${requestWidthPx}x${requestHeightPx}_v${revalidationKey - 1}")
+                        builder.placeholderMemoryCacheKey(posterMemoryCacheKey(effectiveImageUrl, requestWidthPx, requestHeightPx, revalidationKey - 1))
                     }
                     val fallbackUrl = item.rawPosterUrl
                     if (!fallbackUrl.isNullOrBlank() && fallbackUrl != effectiveImageUrl) {
-                        builder.memoryCacheKeyExtras(
-                            mapOf(com.nuvio.tv.core.image.CustomPosterFallbackInterceptor.FALLBACK_URL_KEY to fallbackUrl)
-                        )
+                        builder.posterFallbackUrl(fallbackUrl)
                     }
                     builder.build()
                 }
                 if (effectiveImageUrl.isNullOrBlank()) {
                     MonochromePosterPlaceholder()
                 } else {
-                    AsyncImage(
-                        model = imageModel,
-                        contentDescription = item.name,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop,
-                        placeholder = bgPainter,
-                        error = bgPainter,
-                        fallback = bgPainter
-                    )
+                    key(imageRetry.attempt) {
+                        AsyncImage(
+                            model = imageModel,
+                            contentDescription = item.name,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop,
+                            placeholder = bgPainter,
+                            error = bgPainter,
+                            fallback = bgPainter,
+                            onError = imageRetry::onError
+                        )
+                    }
                 }
 
                 // Landscape clearlogo overlay on backdrop cards

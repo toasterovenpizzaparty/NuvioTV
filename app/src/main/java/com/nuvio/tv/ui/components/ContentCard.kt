@@ -57,6 +57,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import com.nuvio.tv.core.image.posterMemoryCacheKey
+import com.nuvio.tv.core.image.posterFallbackUrl
 import com.nuvio.tv.ui.util.contentTextDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -265,20 +267,19 @@ fun ContentCard(
             item.poster
         }
         val revalidationKey = com.nuvio.tv.core.image.rememberImageRevalidationKey(imageUrl)
+        val imageRetry = com.nuvio.tv.core.image.rememberImageRetryState(imageUrl)
         val imageModel = remember(imageUrl, requestWidthPx, requestHeightPx, revalidationKey) {
             val builder = ImageRequest.Builder(context)
                 .data(imageUrl)
                 .crossfade(true)
-                .memoryCacheKey("${imageUrl}_${requestWidthPx}x${requestHeightPx}_v$revalidationKey")
+                .memoryCacheKey(posterMemoryCacheKey(imageUrl, requestWidthPx, requestHeightPx, revalidationKey))
                 .size(width = requestWidthPx, height = requestHeightPx)
             if (revalidationKey > 0) {
-                builder.placeholderMemoryCacheKey("${imageUrl}_${requestWidthPx}x${requestHeightPx}_v${revalidationKey - 1}")
+                builder.placeholderMemoryCacheKey(posterMemoryCacheKey(imageUrl, requestWidthPx, requestHeightPx, revalidationKey - 1))
             }
             val fallbackUrl = item.rawPosterUrl
             if (!fallbackUrl.isNullOrBlank() && fallbackUrl != imageUrl) {
-                builder.memoryCacheKeyExtras(
-                    mapOf(com.nuvio.tv.core.image.CustomPosterFallbackInterceptor.FALLBACK_URL_KEY to fallbackUrl)
-                )
+                builder.posterFallbackUrl(fallbackUrl)
             }
             builder.build()
         }
@@ -414,15 +415,18 @@ fun ContentCard(
                             )
                     )
                 } else if (!imageUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = imageModel,
-                        contentDescription = item.name,
-                        modifier = Modifier.fillMaxSize(),
-                        placeholder = backgroundPainter,
-                        error = backgroundPainter,
-                        fallback = backgroundPainter,
-                        contentScale = ContentScale.Crop
-                    )
+                    key(imageRetry.attempt) {
+                        AsyncImage(
+                            model = imageModel,
+                            contentDescription = item.name,
+                            modifier = Modifier.fillMaxSize(),
+                            placeholder = backgroundPainter,
+                            error = backgroundPainter,
+                            fallback = backgroundPainter,
+                            contentScale = ContentScale.Crop,
+                            onError = imageRetry::onError
+                        )
+                    }
                 } else {
                     MonochromePosterPlaceholder()
                 }
